@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Car Cost Graph</title>
+<!--
+  Car ownership strategy comparison: "sawtooth" (buy midlife, sell every N years) vs
+  "steady state" (buy one ~20-year-old car and keep it forever).
+  All figures are in today's dollars (no inflation). Insurance and registration are left out
+  because they are roughly a wash or favor the old car; add them mentally.
+
+  Sources used to check the defaults (fetched 2026-10-30):
+  - Used-car prices: Kelley Blue Book / Cox Automotive. Average used listing ~$25.5k (Jan 2026)
+    to ~$27k (mid-2026), so a $20k midlife car is a reasonable below-average pick.
+      https://www.kbb.com/
+      https://www.coxautoinc.com/wp-content/uploads/2026/08/July-ATP-Data-Files-revised.pdf
+      https://www.consumeraffairs.com/news/used-car-prices-have-softened-heading-into-the-end-of-2026-100826.html
+  - Depreciation: $20k -> ~$11k after 5 years = 55% retained (~11%/yr), in line with typical
+    used-car depreciation curves on CarEdge.
+      https://caredge.com/guides/the-cheapest-most-expensive-cars-to-maintain
+  - Maintenance vs. age: CarEdge model projections climb from a few hundred $/yr in year 1 to
+    $900-1,400+/yr by year 10, with the chance of a major repair rising to ~28% by year 10.
+    AAA puts the all-vehicle average near $1,475/yr (~10 cents/mile). The brackets below
+    ($800 / $1,200 / $1,800 / $3,000) are a bit conservative (on the high side), which is fine for a worst-case comparison.
+      https://caredge.com/ford/edge/maintenance
+      https://caredge.com/kia/forte/maintenance?m=13500
+      https://www.moneygeek.com/resources/car-maintenance-cost/
+      https://www.bls.gov/opub/btn/volume-3/americans-aging-autos.htm
+  - Gas: AAA national average ~$4.25/gal (Oct 28, 2026).
+      https://gasprices.aaa.com/
+  - Old car (Xterra ~15 mpg), timing belt ~$1,000 / 100k mi, engine or transmission swap ~$8,000:
+    user-supplied estimates, kept as defaults.
+-->
+<style>
+  :root {
+    --bg: #f7f7f5; --panel: #ffffff; --text: #1d1d1f; --muted: #6b6b70; --border: #e2e2e0;
+    --saw: #2563eb; --steady: #d97706; --good: #15803d; --accent-bg: #eef2ff;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141416; --panel: #1e1e21; --text: #ececee; --muted: #9a9aa2; --border: #34343a;
+      --saw: #60a5fa; --steady: #fbbf24; --good: #4ade80; --accent-bg: #1f2540;
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 1280px; margin: 0 auto; padding: 20px 16px 40px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 16px; }
+  .layout { display: grid; grid-template-columns: 340px 1fr; gap: 16px; align-items: start; }
+  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+  .controls h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; margin: 14px 0 8px; }
+  .controls h2:first-child { margin-top: 0; }
+  .controls h2.saw { color: var(--saw); } .controls h2.steady { color: var(--steady); }
+  .row { margin-bottom: 9px; }
+  .row label { display: flex; justify-content: space-between; font-size: 13px; }
+  .row label output { font-variant-numeric: tabular-nums; font-weight: 600; }
+  input[type=range] { width: 100%; margin: 3px 0 0; }
+  .brackets { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .brackets label { font-size: 11px; color: var(--muted); display: block; }
+  .brackets input, .num input { width: 100%; padding: 4px 6px; border: 1px solid var(--border);
+    border-radius: 6px; background: var(--bg); color: var(--text); font: inherit; font-size: 13px; }
+  .num { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .num label { font-size: 11px; color: var(--muted); display: block; }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .seg button { border: 0; background: transparent; color: var(--text); padding: 6px 12px; font: inherit; cursor: pointer; }
+  .seg button.on { background: var(--accent-bg); font-weight: 600; }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 10px; }
+  .check { display: flex; gap: 6px; align-items: center; font-size: 13px; color: var(--muted); }
+  .chartbox { position: relative; height: 460px; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; margin-bottom: 12px; }
+  .stat { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+  .stat .k { font-size: 12px; color: var(--muted); }
+  .stat .v { font-size: 20px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .stat .d { font-size: 12px; color: var(--muted); }
+  .note { color: var(--muted); font-size: 12px; margin-top: 10px; }
+  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Car Cost Graph</h1>
+  <p class="sub"><span class="dot" style="background:var(--saw)"></span>Sawtooth: buy midlife, swap every N years &nbsp;vs&nbsp;
+     <span class="dot" style="background:var(--steady)"></span>Steady state: one cheap old car, kept forever. Today's dollars.</p>
+
+  <div class="layout">
+    <div class="panel controls" id="controls">
+      <h2>General</h2>
+      <div class="row"><label>Horizon <output id="o_horizon"></output></label><input type="range" id="horizon" min="5" max="50" step="1" value="30"></div>
+      <div class="row"><label>Annual miles <output id="o_miles"></output></label><input type="range" id="miles" min="3000" max="30000" step="500" value="12000"></div>
+      <div class="row"><label>Gas price <output id="o_gas"></output></label><input type="range" id="gas" min="2" max="7" step="0.05" value="4.25"></div>
+
+      <h2 class="saw">Sawtooth (midlife car)</h2>
+      <div class="row"><label>Purchase price <output id="o_midPrice"></output></label><input type="range" id="midPrice" min="5000" max="60000" step="500" value="20000"></div>
+      <div class="row"><label>Age at purchase <output id="o_midAge"></output></label><input type="range" id="midAge" min="0" max="15" step="1" value="4"></div>
+      <div class="row"><label>Years kept before replacing <output id="o_keep"></output></label><input type="range" id="keep" min="1" max="15" step="1" value="5"></div>
+      <div class="row"><label>Resale value (% of price) <output id="o_resale"></output></label><input type="range" id="resale" min="10" max="95" step="1" value="55"></div>
+      <div class="row"><label>Transaction fees per swap <output id="o_fees"></output></label><input type="range" id="fees" min="0" max="6000" step="100" value="2000"></div>
+      <div class="row"><label>Fuel economy <output id="o_mpgNew"></output></label><input type="range" id="mpgNew" min="10" max="60" step="1" value="28"></div>
+      <div class="row">
+        <label>Maintenance $/yr by vehicle age</label>
+        <div class="brackets">
+          <div><label>0–2 yrs</label><input type="number" id="m0" value="800" step="100" min="0"></div>
+          <div><label>3–5</label><input type="number" id="m1" value="1200" step="100" min="0"></div>
+          <div><label>6–10</label><input type="number" id="m2" value="1800" step="100" min="0"></div>
+          <div><label>11+</label><input type="number" id="m3" value="3000" step="100" min="0"></div>
+        </div>
+      </div>
+
+      <h2 class="steady">Steady state (old car)</h2>
+      <div class="row"><label>Purchase price <output id="o_oldPrice"></output></label><input type="range" id="oldPrice" min="500" max="15000" step="250" value="3000"></div>
+      <div class="row"><label>Fuel economy <output id="o_mpgOld"></output></label><input type="range" id="mpgOld" min="8" max="40" step="1" value="15"></div>
+      <div class="row">
+        <label>Maintenance done by</label>
+        <div class="seg" id="diySeg"><button data-v="diy" class="on">DIY</button><button data-v="shop">Shop</button></div>
+      </div>
+      <div class="row num">
+        <div><label>DIY $/yr</label><input type="number" id="diyCost" value="2000" step="100" min="0"></div>
+        <div><label>Shop $/yr</label><input type="number" id="shopCost" value="3500" step="100" min="0"></div>
+      </div>
+      <div class="row"><label>Big spike cost (engine/trans) <output id="o_spike"></output></label><input type="range" id="spike" min="0" max="15000" step="250" value="8000"></div>
+      <div class="row"><label>Big spike every <output id="o_spikeEvery"></output></label><input type="range" id="spikeEvery" min="2" max="30" step="1" value="10"></div>
+      <div class="row num">
+        <div><label>Timing belt $</label><input type="number" id="belt" value="1000" step="50" min="0"></div>
+        <div><label>Belt every (miles)</label><input type="number" id="beltMiles" value="100000" step="5000" min="10000"></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="stats" id="stats"></div>
+      <div class="panel">
+        <div class="toolbar">
+          <div class="seg" id="viewSeg"><button data-v="monthly" class="on">Cost per month</button><button data-v="cumulative">Cumulative total</button><button data-v="average">Average per month</button></div>
+          <label class="check" id="amortWrap"><input type="checkbox" id="amort" checked> Spread car purchases over ownership</label>
+          <label class="check"><input type="checkbox" id="fuelOn" checked> Include fuel</label>
+        </div>
+        <div class="chartbox" id="lineBox"><canvas id="chart"></canvas></div>
+        <div class="chartbox" id="avgBox" hidden><canvas id="avgChart"></canvas></div>
+        <p class="note" id="note"></p>
+      </div>
+      <p class="note">
+        How it's modeled: the sawtooth car loses value smoothly (same % each year), so it's worth the resale % after the years kept.
+        Each swap buys an identical car at the same price and pays the transaction fee (tax, title, dealer fees).
+        Its maintenance follows the age brackets as it ages. The old car's maintenance is a flat yearly average.
+        Its first big spike comes half an interval in, since the car is already old, and then repeats every interval.
+        The timing belt is mileage-based. The old car is assumed to be worth $0 at the end.
+        Insurance, registration and inflation are left out.
+      </p>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const usd = v => (v < 0 ? '−' : '') + '$' + Math.round(Math.abs(v)).toLocaleString();
+const state = { view: 'monthly', diy: 'diy' };
+
+const fmt = {
+  horizon: v => v + ' yrs', miles: v => (+v).toLocaleString() + ' mi', gas: v => '$' + (+v).toFixed(2),
+  midPrice: v => usd(v), midAge: v => v + ' yrs', keep: v => v + ' yrs', resale: v => v + '%',
+  fees: v => usd(v), mpgNew: v => v + ' mpg', oldPrice: v => usd(v), mpgOld: v => v + ' mpg',
+  spike: v => usd(v), spikeEvery: v => v + ' yrs',
+};
+
+function params() {
+  const n = id => parseFloat($(id).value) || 0;
+  return {
+    horizon: n('horizon'), miles: n('miles'), gas: $('fuelOn').checked ? n('gas') : 0,
+    midPrice: n('midPrice'), midAge: n('midAge'), keep: n('keep'), resale: n('resale') / 100,
+    fees: n('fees'), mpgNew: n('mpgNew'), brackets: [n('m0'), n('m1'), n('m2'), n('m3')],
+    oldPrice: n('oldPrice'), mpgOld: n('mpgOld'),
+    oldMaint: state.diy === 'diy' ? n('diyCost') : n('shopCost'),
+    spike: n('spike'), spikeEvery: n('spikeEvery'), belt: n('belt'), beltMiles: Math.max(1, n('beltMiles')),
+  };
+}
+
+function maintForAge(age, b) {
+  if (age < 3) return b[0];
+  if (age < 6) return b[1];
+  if (age < 11) return b[2];
+  return b[3];
+}
+
+function simulate(p) {
+  const months = p.horizon * 12, cycle = p.keep * 12;
+  const sawFuel = p.miles / p.mpgNew * p.gas / 12;
+  const oldFuel = p.miles / p.mpgOld * p.gas / 12;
+  const resaleAmt = p.midPrice * p.resale;
+  const sawAmortPurchase = (p.midPrice + p.fees - resaleAmt) / cycle;
+  const oldAmortPurchase = p.oldPrice / months;
+
+  // Spike months for the old car
+  const spikeMonths = new Set();
+  for (let t = p.spikeEvery / 2; t < p.horizon; t += p.spikeEvery) spikeMonths.add(Math.round(t * 12));
+  const beltYears = p.beltMiles / Math.max(1, p.miles);
+  const beltMonths = new Set();
+  for (let t = beltYears; t < p.horizon; t += beltYears) beltMonths.add(Math.round(t * 12));
+
+  const sawCash = [], sawSmooth = [], oldCash = [], oldSmooth = [];
+  const sawCum = [], oldCum = [], sawNetCum = [], oldNetCum = [];
+  let sc = 0, oc = 0, swaps = 0, spikesHit = 0, beltsHit = 0;
+  const parts = { sawCar: 0, sawMaint: 0, sawFuel: 0, oldCar: 0, oldMaint: 0, oldBig: 0, oldFuel: 0 };
+
+  for (let m = 0; m < months; m++) {
+    const inCycle = m % cycle;
+    const age = p.midAge + Math.floor(inCycle / 12);
+    const maint = maintForAge(age, p.brackets) / 12;
+    let purchase = 0;
+    if (inCycle === 0) {
+      purchase = p.midPrice + p.fees - (m > 0 ? resaleAmt : 0);
+      if (m > 0) swaps++;
+    }
+    const sCash = purchase + maint + sawFuel;
+    parts.sawCar += purchase; parts.sawMaint += maint; parts.sawFuel += sawFuel;
+    sawCash.push(sCash);
+    sawSmooth.push(sawAmortPurchase + maint + sawFuel);
+    sc += sCash; sawCum.push(sc);
+    // value of the current car if sold at the end of this month
+    const owned = (inCycle + 1) / cycle;
+    sawNetCum.push(sc - p.midPrice * Math.pow(p.resale, owned));
+
+    let extra = 0;
+    if (spikeMonths.has(m)) { extra += p.spike; spikesHit++; }
+    if (beltMonths.has(m)) { extra += p.belt; beltsHit++; }
+    const oBase = p.oldMaint / 12 + oldFuel + extra;
+    parts.oldCar += m === 0 ? p.oldPrice : 0; parts.oldMaint += p.oldMaint / 12;
+    parts.oldBig += extra; parts.oldFuel += oldFuel;
+    oldCash.push(oBase + (m === 0 ? p.oldPrice : 0));
+    oldSmooth.push(oBase + oldAmortPurchase);
+    oc += oBase + (m === 0 ? p.oldPrice : 0); oldCum.push(oc);
+    oldNetCum.push(oc);
+  }
+  // Credit the sawtooth car still owned at the end, so its car cost is true depreciation + fees.
+  parts.sawCar -= sawCum[months - 1] - sawNetCum[months - 1];
+  return { months, parts, sawCash, sawSmooth, oldCash, oldSmooth, sawCum, oldCum, sawNetCum, oldNetCum,
+           swaps, spikesHit, beltsHit, sawFuel, oldFuel };
+}
+
+// First month where the leader (cheaper strategy) changes, plus how many times the lines cross.
+function breakEven(a, b) {
+  let first = null, crossings = 0;
+  let prev = Math.sign(a[0] - b[0]);
+  for (let i = 1; i < a.length; i++) {
+    const s = Math.sign(a[i] - b[i]);
+    if (s !== 0 && prev !== 0 && s !== prev) { crossings++; if (first === null) first = i; }
+    if (s !== 0) prev = s;
+  }
+  return { first, crossings };
+}
+
+const css = getComputedStyle(document.documentElement);
+const C = { saw: css.getPropertyValue('--saw').trim(), steady: css.getPropertyValue('--steady').trim(),
+            muted: css.getPropertyValue('--muted').trim(), border: css.getPropertyValue('--border').trim(),
+            text: css.getPropertyValue('--text').trim() };
+Chart.defaults.color = C.muted;
+Chart.defaults.borderColor = C.border;
+Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+
+const chart = new Chart($('chart'), {
+  type: 'line',
+  data: { labels: [], datasets: [
+    { label: 'Sawtooth', data: [], borderColor: C.saw, backgroundColor: C.saw, borderWidth: 2, pointRadius: 0, tension: 0, stepped: false },
+    { label: 'Steady state', data: [], borderColor: C.steady, backgroundColor: C.steady, borderWidth: 2, pointRadius: 0, tension: 0 },
+  ]},
+  options: {
+    responsive: true, maintainAspectRatio: false, animation: false,
+    interaction: { mode: 'index', intersect: false },
+    scales: {
+      x: { type: 'linear', title: { display: true, text: 'Years from today' }, ticks: { stepSize: 1 } },
+      y: { title: { display: true, text: '' }, ticks: { callback: v => usd(v) } },
+    },
+    plugins: {
+      legend: { position: 'top', labels: { usePointStyle: true, pointStyle: 'line' } },
+      tooltip: { callbacks: {
+        title: items => { const x = items[0].parsed.x; return 'Year ' + Math.floor(x) + ', month ' + (Math.round((x % 1) * 12) + 1); },
+        label: it => it.dataset.label + ': ' + usd(it.parsed.y),
+      }},
+    },
+  },
+});
+
+const avgChart = new Chart($('avgChart'), {
+  type: 'bar',
+  data: { labels: ['Sawtooth', 'Steady state'], datasets: [
+    { label: 'Car (net depreciation + fees / purchase)', data: [], backgroundColor: '#6366f1' },
+    { label: 'Maintenance', data: [], backgroundColor: '#10b981' },
+    { label: 'Big repairs', data: [], backgroundColor: '#ef4444' },
+    { label: 'Fuel', data: [], backgroundColor: '#94a3b8' },
+  ]},
+  options: {
+    responsive: true, maintainAspectRatio: false, animation: false,
+    scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true, title: { display: true, text: 'Average cost per month' }, ticks: { callback: v => usd(v) } } },
+    plugins: {
+      legend: { position: 'top' },
+      tooltip: { callbacks: {
+        label: it => it.dataset.label + ': ' + usd(it.parsed.y) + '/mo',
+        footer: items => 'Total: ' + usd(items[0].chart.data.datasets.reduce((s, d) => s + d.data[items[0].dataIndex], 0)) + '/mo',
+      }},
+    },
+  },
+  plugins: [{ // total label above each bar
+    id: 'totals',
+    afterDatasetsDraw(c) {
+      const { ctx } = c, meta = c.getDatasetMeta(c.data.datasets.length - 1);
+      ctx.save(); ctx.fillStyle = C.text; ctx.font = '600 14px ' + Chart.defaults.font.family; ctx.textAlign = 'center';
+      meta.data.forEach((bar, i) => {
+        const total = c.data.datasets.reduce((s, d) => s + d.data[i], 0);
+        ctx.fillText(usd(total) + '/mo', bar.x, bar.y - 8);
+      });
+      ctx.restore();
+    },
+  }],
+});
+
+function render() {
+  for (const k in fmt) $('o_' + k).textContent = fmt[k]($(k).value);
+  const p = params();
+  const r = simulate(p);
+  const xs = Array.from({ length: r.months }, (_, i) => i / 12);
+  let a, b, yLabel;
+  const amort = $('amort').checked;
+  const cumsum = arr => { let t = 0; return arr.map(v => (t += v)); };
+  const ca = amort ? cumsum(r.sawSmooth) : r.sawCum, cb = amort ? cumsum(r.oldSmooth) : r.oldCum;
+  if (state.view === 'monthly') {
+    a = amort ? r.sawSmooth : r.sawCash; b = amort ? r.oldSmooth : r.oldCash;
+    yLabel = 'Cost per month';
+  } else {
+    a = ca; b = cb;
+    yLabel = amort ? 'Cumulative cost, purchases spread over ownership' : 'Cumulative cash spent';
+  }
+  chart.data.datasets[0].data = xs.map((x, i) => ({ x, y: a[i] }));
+  chart.data.datasets[1].data = xs.map((x, i) => ({ x, y: b[i] }));
+  chart.options.scales.x.max = p.horizon;
+  chart.options.scales.x.min = 0;
+  chart.options.scales.y.title.text = yLabel;
+  chart.options.scales.y.beginAtZero = true;
+  chart.update();
+
+  // Break-even is always judged on cumulative totals, spread or raw to match the checkbox.
+  const be = breakEven(ca, cb);
+  const endSaw = ca[ca.length - 1], endOld = cb[cb.length - 1];
+  const diff = endSaw - endOld;
+  const winner = diff > 0 ? 'Steady state' : 'Sawtooth';
+  const startLeader = ca[0] < cb[0] ? 'Sawtooth' : 'Steady state';
+  const beText = be.first === null
+    ? 'Never'
+    : 'Year ' + (be.first / 12).toFixed(1);
+  const beDetail = be.first === null
+    ? startLeader + ' stays cheaper throughout'
+    : 'lines first cross here' + (be.crossings > 1 ? ' (they cross ' + be.crossings + '×)' : '');
+
+  const yrs = p.horizon;
+  $('stats').innerHTML = `
+    <div class="stat"><div class="k">Break-even (cumulative)</div><div class="v">${beText}</div><div class="d">${beDetail}</div></div>
+    <div class="stat"><div class="k">Difference after ${yrs} yrs</div><div class="v" style="color:var(--good)">${usd(Math.abs(diff))}</div><div class="d">${winner} is cheaper${amort ? ' (purchases spread)' : ' (raw cash)'}</div></div>
+    <div class="stat"><div class="k"><span class="dot" style="background:var(--saw)"></span>Sawtooth total</div><div class="v">${usd(endSaw)}</div><div class="d">${usd(endSaw / (yrs * 12))}/mo avg · ${r.swaps} swaps</div></div>
+    <div class="stat"><div class="k"><span class="dot" style="background:var(--steady)"></span>Steady state total</div><div class="v">${usd(endOld)}</div><div class="d">${usd(endOld / (yrs * 12))}/mo avg · ${r.spikesHit} big spikes, ${r.beltsHit} belts</div></div>`;
+
+  const pt = r.parts, mo = r.months;
+  avgChart.data.datasets[0].data = [pt.sawCar / mo, pt.oldCar / mo];
+  avgChart.data.datasets[1].data = [pt.sawMaint / mo, pt.oldMaint / mo];
+  avgChart.data.datasets[2].data = [0, pt.oldBig / mo];
+  avgChart.data.datasets[3].data = [pt.sawFuel / mo, pt.oldFuel / mo];
+  avgChart.update();
+
+  $('note').textContent = state.view === 'average'
+    ? 'Average all-in cost per month over the full ' + yrs + '-year horizon. Sawtooth car cost is purchases + fees − resales, minus the value of the car still owned at the end.'
+    : state.view === 'monthly'
+    ? (amort
+        ? 'Each sawtooth car\'s net depreciation and fees are spread evenly over the years it\'s kept, so you see maintenance rising with age and then dropping when the car is replaced. Old-car spikes show up in the month they happen. Fuel: ' + usd(r.sawFuel) + '/mo vs ' + usd(r.oldFuel) + '/mo.'
+        : 'Raw cash flow: purchases and resales land in the month they happen. Tick the box above to spread them out.')
+    : (amort
+        ? 'Running total with each car\'s lost value (price + fees − resale) charged a little every month you own it, the way resale value reflects hidden wear. The old car\'s purchase is spread over the whole horizon.'
+        : 'Total cash out the door. Each sawtooth step up is a swap: the new car\'s price plus fees, minus what the old one sold for.');
+}
+
+document.querySelectorAll('#controls input').forEach(el => el.addEventListener('input', render));
+$('amort').addEventListener('change', render);
+$('fuelOn').addEventListener('change', render);
+function seg(id, key, after) {
+  $(id).addEventListener('click', e => {
+    const btn = e.target.closest('button'); if (!btn) return;
+    state[key] = btn.dataset.v;
+    $(id).querySelectorAll('button').forEach(b => b.classList.toggle('on', b === btn));
+    if (after) after(); render();
+  });
+}
+seg('diySeg', 'diy');
+seg('viewSeg', 'view', () => {
+  $('amortWrap').hidden = state.view === 'average';
+  $('lineBox').hidden = state.view === 'average';
+  $('avgBox').hidden = state.view !== 'average';
+});
+render();
+</script>
+</body>
+</html>
