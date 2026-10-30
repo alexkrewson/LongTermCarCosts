@@ -1,8 +1,8 @@
 # Long-Term Car Costs
 
-Interactive comparison of two car ownership strategies over a long horizon (default 30 years):
+Interactive comparison of up to three car ownership scenarios over a long horizon (default 30 years). Each scenario can be gas or electric, and either:
 
-1. **Sawtooth**: buy a midlife car, keep it N years, sell it, repeat.
-2. **Steady state**: buy one cheap ~20-year-old car and keep it forever.
+- **Swap**: buy a car, keep it N years, sell it, repeat.
+- **Keep forever**: buy once and maintain it indefinitely.
 
-Open `index.html` in a browser. All figures are in today's dollars. Sources for the defaults are cited in a comment at the top of the file.
+Live page: https://alexkrewson.github.io/LongTermCarCosts/ (or open `index.html` locally). All figures are in today's dollars. Sources for the defaults are cited in a comment at the top of the file.
