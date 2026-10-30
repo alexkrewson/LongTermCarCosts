@@ -77,7 +77,11 @@
   .controls h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; margin: 0 0 8px; }
   .row { margin-bottom: 9px; }
   .row > label { display: flex; justify-content: space-between; font-size: 13px; }
-  .row label output { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .row label .val { width: 9.5em; text-align: right; font: inherit; font-weight: 600; font-variant-numeric: tabular-nums;
+    color: var(--text); background: transparent; border: 1px solid transparent; border-radius: 5px; padding: 0 4px; margin: -1px -5px -1px 0; }
+  .row label .val:hover { border-color: var(--border); }
+  .row label .val:focus { border-color: var(--c0); background: var(--panel); outline: none; }
+  .dim .val { pointer-events: none; }
   input[type=range] { width: 100%; margin: 3px 0 0; }
   .brackets { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
   .brackets label, .num label { font-size: 11px; color: var(--muted); display: block; }
@@ -130,11 +134,11 @@
   <div class="layout">
     <div class="panel controls" id="controls">
       <h2>General</h2>
-      <div class="row"><label>Horizon <output id="o_horizon"></output></label><input type="range" id="horizon" min="5" max="50" step="1" value="30"></div>
-      <div class="row"><label>Annual miles <output id="o_miles"></output></label><input type="range" id="miles" min="3000" max="30000" step="500" value="12000"></div>
-      <div class="row"><label>Gas price <output id="o_gas"></output></label><input type="range" id="gas" min="2" max="7" step="0.05" value="4.25"></div>
-      <div class="row"><label>Home electricity <output id="o_kwhHome"></output></label><input type="range" id="kwhHome" min="0.05" max="0.6" step="0.01" value="0.18"></div>
-      <div class="row"><label>Public charging <output id="o_kwhPublic"></output></label><input type="range" id="kwhPublic" min="0.15" max="0.9" step="0.01" value="0.45"></div>
+      <div class="row"><label>Horizon <input class="val" id="o_horizon" data-for="horizon" inputmode="decimal" aria-label="Type a value"></label><input type="range" id="horizon" min="5" max="50" step="1" value="30"></div>
+      <div class="row"><label>Annual miles <input class="val" id="o_miles" data-for="miles" inputmode="decimal" aria-label="Type a value"></label><input type="range" id="miles" min="3000" max="30000" step="500" value="12000"></div>
+      <div class="row"><label>Gas price <input class="val" id="o_gas" data-for="gas" inputmode="decimal" aria-label="Type a value"></label><input type="range" id="gas" min="2" max="7" step="0.05" value="4.25"></div>
+      <div class="row"><label>Home electricity <input class="val" id="o_kwhHome" data-for="kwhHome" inputmode="decimal" aria-label="Type a value"></label><input type="range" id="kwhHome" min="0.05" max="0.6" step="0.01" value="0.18"></div>
+      <div class="row"><label>Public charging <input class="val" id="o_kwhPublic" data-for="kwhPublic" inputmode="decimal" aria-label="Type a value"></label><input type="range" id="kwhPublic" min="0.15" max="0.9" step="0.01" value="0.45"></div>
       <div id="scenarios"></div>
     </div>
 
@@ -183,7 +187,7 @@ const SCENARIOS = [
 ];
 
 function slider(i, key, label, min, max, step, value, cls = '') {
-  return `<div class="row ${cls}" data-row="${key}"><label>${label} <output id="s${i}_o_${key}"></output></label>
+  return `<div class="row ${cls}" data-row="${key}"><label>${label} <input class="val" id="s${i}_o_${key}" data-for="s${i}_${key}" inputmode="decimal" aria-label="Type a value"></label>
     <input type="range" id="s${i}_${key}" min="${min}" max="${max}" step="${step}" value="${value}"></div>`;
 }
 function scenarioHTML(i, s) {
@@ -376,8 +380,23 @@ const avgChart = new Chart($('avgChart'), {
   }],
 });
 
+// Value boxes next to sliders: show the formatted value, but don't overwrite one being typed in.
+function showVal(el, text) { if (document.activeElement !== el) el.value = text; }
+// Typed value -> its slider. Units and commas are ignored; out-of-range values stretch the slider.
+function applyTyped(el) {
+  const range = $(el.dataset.for);
+  const v = parseFloat(el.value.replace(/[^0-9.\-]/g, '')) * (/\d\s*k\b/i.test(el.value) ? 1000 : 1); // "20k" = 20,000
+  if (!isNaN(v)) {
+    if (v > +range.max) range.max = v;
+    if (v < +range.min) range.min = v;
+    range.step = 'any'; // keep exactly what was typed instead of snapping to the slider's step
+    range.value = v;
+  }
+  render();
+}
+
 function render() {
-  for (const k in globalFmt) $('o_' + k).textContent = globalFmt[k]($(k).value);
+  for (const k in globalFmt) showVal($('o_' + k), globalFmt[k]($(k).value));
   const g = globals();
   const scen = SCENARIOS.map((_, i) => readScenario(i));
   const runs = scen.map(s => simulate(s, g));
@@ -385,10 +404,10 @@ function render() {
 
   // Scenario cards: outputs, greyed-out rows, one-line summary
   scen.forEach((s, i) => {
-    for (const k in scenFmt) $(`s${i}_o_${k}`).textContent = scenFmt[k]($(`s${i}_${k}`).value);
+    for (const k in scenFmt) showVal($(`s${i}_o_${k}`), scenFmt[k]($(`s${i}_${k}`).value));
     const el = $('s' + i);
     el.classList.toggle('off', !s.show);
-    el.querySelectorAll('.swapOnly').forEach(r => { r.classList.toggle('dim', s.forever); r.querySelector('input').disabled = s.forever; });
+    el.querySelectorAll('.swapOnly').forEach(r => { r.classList.toggle('dim', s.forever); r.querySelectorAll('input').forEach(x => x.disabled = s.forever); });
     el.querySelectorAll('.gasOnly').forEach(r => r.hidden = s.ev);
     el.querySelectorAll('.evOnly').forEach(r => r.hidden = !s.ev);
     el.querySelector('[data-row="big"] label').firstChild.textContent = s.ev ? 'Battery replacement ' : 'Big repair (engine/trans) ';
@@ -448,8 +467,16 @@ function render() {
 
 // Events
 const controls = $('controls');
-controls.addEventListener('input', e => { if (e.target.matches('input')) render(); });
+controls.addEventListener('input', e => { if (e.target.matches('input:not(.val)')) render(); });
+controls.addEventListener('focusin', e => { if (e.target.matches('.val')) e.target.select(); });
+controls.addEventListener('keydown', e => {
+  if (!e.target.matches('.val')) return;
+  if (e.key === 'Enter') e.target.blur();
+  if (e.key === 'Escape') { e.target.value = ''; e.target.blur(); }
+});
+controls.addEventListener('focusout', e => { if (e.target.matches('.val')) applyTyped(e.target); });
 controls.addEventListener('change', e => {
+  if (e.target.matches('.val')) return; // handled on focusout
   const m = e.target.id.match(/^s(\d)_ev$/);
   if (m) { // load presets for the fuel type
     const i = m[1], p = e.target.checked ? PRESETS.ev : PRESETS.gas;
