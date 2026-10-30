@@ -328,15 +328,14 @@ function render() {
   const r = simulate(p);
   const xs = Array.from({ length: r.months }, (_, i) => i / 12);
   let a, b, yLabel;
-  const cumsum = arr => { let t = 0; return arr.map(v => (t += v)); };
-  // Car purchases are always spread over ownership: lost value is charged a little each month.
-  const ca = cumsum(r.sawSmooth), cb = cumsum(r.oldSmooth);
+  // Cumulative view is real cash: purchases land when they happen, resales are credited at each swap.
+  const ca = r.sawCum, cb = r.oldCum;
   if (state.view === 'monthly') {
     a = r.sawSmooth; b = r.oldSmooth;
     yLabel = 'Cost per month';
   } else {
     a = ca; b = cb;
-    yLabel = 'Cumulative cost';
+    yLabel = 'Cumulative cash spent';
   }
   chart.data.datasets[0].data = xs.map((x, i) => ({ x, y: a[i] }));
   chart.data.datasets[1].data = xs.map((x, i) => ({ x, y: b[i] }));
@@ -348,7 +347,8 @@ function render() {
 
   // Break-even is always judged on cumulative totals, spread or raw to match the checkbox.
   const be = breakEven(ca, cb);
-  const endSaw = ca[ca.length - 1], endOld = cb[cb.length - 1];
+  // End totals credit the swap car still owned at the horizon (as if sold), so the gap is fair.
+  const endSaw = r.sawNetCum[r.months - 1], endOld = cb[cb.length - 1];
   const diff = endSaw - endOld;
   const winner = diff > 0 ? 'Steady state' : 'Sawtooth';
   const startLeader = ca[0] < cb[0] ? 'Sawtooth' : 'Steady state';
@@ -379,7 +379,7 @@ function render() {
     ? 'Each car\'s lost value (price + fees − resale) is spread evenly over the years it\'s kept. ' + (p.fullWear
         ? 'Full wear is on, so swap cars pay the same averaged wear as the old car and their line is flat; the old car\'s spikes show in the month they happen.'
         : 'Swap-car maintenance rises with age and drops at each replacement; the old car\'s spikes show in the month they happen.')
-    : 'Running total, with each car\'s lost value charged a little every month you own it. ' + (p.fullWear
+    : 'Total cash out the door. Each swap-line step is a swap: the next car\'s price plus fees, minus what the last one sold for. The totals above also credit the swap car still owned at the end. ' + (p.fullWear
         ? 'Swap cars are charged the old car\'s full wear rate, so deferred repairs aren\'t passed to the next owner. This is the swap plan\'s worst case, since resale prices already absorb some wear.'
         : 'Swap cars pay only the repairs that come due while owned, so wear left on the car passes to the next buyer.');
 }
