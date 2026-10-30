@@ -36,12 +36,14 @@
   :root {
     --bg: #f7f7f5; --panel: #ffffff; --text: #1d1d1f; --muted: #6b6b70; --border: #e2e2e0;
     --saw: #2563eb; --steady: #d97706; --good: #15803d; --accent-bg: #eef2ff;
+    --saw-tint: #eff4ff; --saw-edge: #c7d7fb; --steady-tint: #fff6e8; --steady-edge: #f5d9a8;
     color-scheme: light;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #141416; --panel: #1e1e21; --text: #ececee; --muted: #9a9aa2; --border: #34343a;
       --saw: #60a5fa; --steady: #fbbf24; --good: #4ade80; --accent-bg: #1f2540;
+      --saw-tint: #18213a; --saw-edge: #2c3d66; --steady-tint: #2a2214; --steady-edge: #57431d;
       color-scheme: dark;
     }
   }
@@ -57,6 +59,13 @@
   .controls h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; margin: 14px 0 8px; }
   .controls h2:first-child { margin-top: 0; }
   .controls h2.saw { color: var(--saw); } .controls h2.steady { color: var(--steady); }
+  /* Tinted, edge-marked groups so it's obvious which scenario a slider belongs to while scrolling */
+  .group { margin: 14px -8px 0; padding: 0 10px 6px; border-radius: 10px; border: 1px solid; border-left-width: 4px; }
+  .saw-group { background: var(--saw-tint); border-color: var(--saw-edge); border-left-color: var(--saw); }
+  .steady-group { background: var(--steady-tint); border-color: var(--steady-edge); border-left-color: var(--steady); }
+  .controls .group h2 { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 1; margin: 0 -10px 8px; padding: 10px 10px 8px;
+    border-radius: 8px 8px 0 0; background: inherit; }
+  .group .brackets input, .group .num input { background: var(--panel); }
   .row { margin-bottom: 9px; }
   .row label { display: flex; justify-content: space-between; font-size: 13px; }
   .row label output { font-variant-numeric: tabular-nums; font-weight: 600; }
@@ -95,6 +104,7 @@
       <div class="row"><label>Annual miles <output id="o_miles"></output></label><input type="range" id="miles" min="3000" max="30000" step="500" value="12000"></div>
       <div class="row"><label>Gas price <output id="o_gas"></output></label><input type="range" id="gas" min="2" max="7" step="0.05" value="4.25"></div>
 
+      <section class="group saw-group">
       <h2 class="saw">Sawtooth (midlife car)</h2>
       <div class="row"><label>Purchase price <output id="o_midPrice"></output></label><input type="range" id="midPrice" min="5000" max="60000" step="500" value="20000"></div>
       <div class="row"><label>Age at purchase <output id="o_midAge"></output></label><input type="range" id="midAge" min="0" max="15" step="1" value="4"></div>
@@ -111,7 +121,9 @@
           <div><label>11+</label><input type="number" id="m3" value="3000" step="100" min="0"></div>
         </div>
       </div>
+      </section>
 
+      <section class="group steady-group">
       <h2 class="steady">Steady state (old car)</h2>
       <div class="row"><label>Purchase price <output id="o_oldPrice"></output></label><input type="range" id="oldPrice" min="500" max="15000" step="250" value="3000"></div>
       <div class="row"><label>Fuel economy <output id="o_mpgOld"></output></label><input type="range" id="mpgOld" min="8" max="40" step="1" value="15"></div>
@@ -129,6 +141,7 @@
         <div><label>Timing belt $</label><input type="number" id="belt" value="1000" step="50" min="0"></div>
         <div><label>Belt every (miles)</label><input type="number" id="beltMiles" value="100000" step="5000" min="10000"></div>
       </div>
+      </section>
     </div>
 
     <div>
@@ -269,8 +282,9 @@ Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
 const chart = new Chart($('chart'), {
   type: 'line',
   data: { labels: [], datasets: [
-    { label: 'Sawtooth', data: [], borderColor: C.saw, backgroundColor: C.saw, borderWidth: 2, pointRadius: 0, tension: 0, stepped: false },
-    { label: 'Steady state', data: [], borderColor: C.steady, backgroundColor: C.steady, borderWidth: 2, pointRadius: 0, tension: 0 },
+    { label: 'Sawtooth', data: [], borderColor: C.saw, backgroundColor: C.saw, borderWidth: 2, pointRadius: 0, tension: 0, stepped: false, order: 1 },
+    // order 0 draws on top, so old-car spikes that coincide with a swap month stay visible
+    { label: 'Steady state', data: [], borderColor: C.steady, backgroundColor: C.steady, borderWidth: 2, pointRadius: 0, tension: 0, order: 0 },
   ]},
   options: {
     responsive: true, maintainAspectRatio: false, animation: false,
