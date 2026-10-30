@@ -136,7 +136,7 @@
       <div class="panel">
         <div class="toolbar">
           <div class="seg" id="viewSeg"><button data-v="monthly" class="on">Cost per month</button><button data-v="cumulative">Cumulative total</button><button data-v="average">Average per month</button></div>
-          <label class="check" id="amortWrap"><input type="checkbox" id="amort" checked> Spread car purchases over ownership</label>
+          <label class="check" title="Charge each swap car the same yearly wear as the old car (its maintenance setting plus spikes), instead of only the repairs that happen to come due while you own it."><input type="checkbox" id="fullWear" checked> Charge swap cars for full wear</label>
           <label class="check"><input type="checkbox" id="fuelOn" checked> Include fuel</label>
         </div>
         <div class="chartbox" id="lineBox"><canvas id="chart"></canvas></div>
@@ -176,6 +176,7 @@ function params() {
     fees: n('fees'), mpgNew: n('mpgNew'), brackets: [n('m0'), n('m1'), n('m2'), n('m3')],
     oldPrice: n('oldPrice'), mpgOld: n('mpgOld'),
     oldMaint: state.diy === 'diy' ? n('diyCost') : n('shopCost'),
+    fullWear: $('fullWear').checked,
     spike: n('spike'), spikeEvery: n('spikeEvery'), belt: n('belt'), beltMiles: Math.max(1, n('beltMiles')),
   };
 }
@@ -202,6 +203,9 @@ function simulate(p) {
   const beltMonths = new Set();
   for (let t = beltYears; t < p.horizon; t += beltYears) beltMonths.add(Math.round(t * 12));
 
+  // Old car's yearly wear: base maintenance plus big spikes and belts averaged over their intervals.
+  // With "full wear" on, each swap car pays this too, so wear isn't passed on to the next owner.
+  const oldWearRate = p.oldMaint + p.spike / p.spikeEvery + p.belt * p.miles / p.beltMiles;
   const sawCash = [], sawSmooth = [], oldCash = [], oldSmooth = [];
   const sawCum = [], oldCum = [], sawNetCum = [], oldNetCum = [];
   let sc = 0, oc = 0, swaps = 0, spikesHit = 0, beltsHit = 0;
@@ -210,7 +214,7 @@ function simulate(p) {
   for (let m = 0; m < months; m++) {
     const inCycle = m % cycle;
     const age = p.midAge + Math.floor(inCycle / 12);
-    const maint = maintForAge(age, p.brackets) / 12;
+    const maint = (p.fullWear ? oldWearRate : maintForAge(age, p.brackets)) / 12;
     let purchase = 0;
     if (inCycle === 0) {
       purchase = p.midPrice + p.fees - (m > 0 ? resaleAmt : 0);
@@ -324,15 +328,15 @@ function render() {
   const r = simulate(p);
   const xs = Array.from({ length: r.months }, (_, i) => i / 12);
   let a, b, yLabel;
-  const amort = $('amort').checked;
   const cumsum = arr => { let t = 0; return arr.map(v => (t += v)); };
-  const ca = amort ? cumsum(r.sawSmooth) : r.sawCum, cb = amort ? cumsum(r.oldSmooth) : r.oldCum;
+  // Car purchases are always spread over ownership: lost value is charged a little each month.
+  const ca = cumsum(r.sawSmooth), cb = cumsum(r.oldSmooth);
   if (state.view === 'monthly') {
-    a = amort ? r.sawSmooth : r.sawCash; b = amort ? r.oldSmooth : r.oldCash;
+    a = r.sawSmooth; b = r.oldSmooth;
     yLabel = 'Cost per month';
   } else {
     a = ca; b = cb;
-    yLabel = amort ? 'Cumulative cost, purchases spread over ownership' : 'Cumulative cash spent';
+    yLabel = 'Cumulative cost';
   }
   chart.data.datasets[0].data = xs.map((x, i) => ({ x, y: a[i] }));
   chart.data.datasets[1].data = xs.map((x, i) => ({ x, y: b[i] }));
@@ -358,7 +362,7 @@ function render() {
   const yrs = p.horizon;
   $('stats').innerHTML = `
     <div class="stat"><div class="k">Break-even (cumulative)</div><div class="v">${beText}</div><div class="d">${beDetail}</div></div>
-    <div class="stat"><div class="k">Difference after ${yrs} yrs</div><div class="v" style="color:var(--good)">${usd(Math.abs(diff))}</div><div class="d">${winner} is cheaper${amort ? ' (purchases spread)' : ' (raw cash)'}</div></div>
+    <div class="stat"><div class="k">Difference after ${yrs} yrs</div><div class="v" style="color:var(--good)">${usd(Math.abs(diff))}</div><div class="d">${winner} is cheaper${p.fullWear ? ' (full wear charged)' : ''}</div></div>
     <div class="stat"><div class="k"><span class="dot" style="background:var(--saw)"></span>Sawtooth total</div><div class="v">${usd(endSaw)}</div><div class="d">${usd(endSaw / (yrs * 12))}/mo avg · ${r.swaps} swaps</div></div>
     <div class="stat"><div class="k"><span class="dot" style="background:var(--steady)"></span>Steady state total</div><div class="v">${usd(endOld)}</div><div class="d">${usd(endOld / (yrs * 12))}/mo avg · ${r.spikesHit} big spikes, ${r.beltsHit} belts</div></div>`;
 
@@ -372,16 +376,16 @@ function render() {
   $('note').textContent = state.view === 'average'
     ? 'Average all-in cost per month over the full ' + yrs + '-year horizon. Sawtooth car cost is purchases + fees − resales, minus the value of the car still owned at the end.'
     : state.view === 'monthly'
-    ? (amort
-        ? 'Each sawtooth car\'s net depreciation and fees are spread evenly over the years it\'s kept, so you see maintenance rising with age and then dropping when the car is replaced. Old-car spikes show up in the month they happen. Fuel: ' + usd(r.sawFuel) + '/mo vs ' + usd(r.oldFuel) + '/mo.'
-        : 'Raw cash flow: purchases and resales land in the month they happen. Tick the box above to spread them out.')
-    : (amort
-        ? 'Running total with each car\'s lost value (price + fees − resale) charged a little every month you own it, the way resale value reflects hidden wear. The old car\'s purchase is spread over the whole horizon.'
-        : 'Total cash out the door. Each sawtooth step up is a swap: the new car\'s price plus fees, minus what the old one sold for.');
+    ? 'Each car\'s lost value (price + fees − resale) is spread evenly over the years it\'s kept. ' + (p.fullWear
+        ? 'Full wear is on, so swap cars pay the same averaged wear as the old car and their line is flat; the old car\'s spikes show in the month they happen.'
+        : 'Swap-car maintenance rises with age and drops at each replacement; the old car\'s spikes show in the month they happen.')
+    : 'Running total, with each car\'s lost value charged a little every month you own it. ' + (p.fullWear
+        ? 'Swap cars are charged the old car\'s full wear rate, so deferred repairs aren\'t passed to the next owner. This is the swap plan\'s worst case, since resale prices already absorb some wear.'
+        : 'Swap cars pay only the repairs that come due while owned, so wear left on the car passes to the next buyer.');
 }
 
 document.querySelectorAll('#controls input').forEach(el => el.addEventListener('input', render));
-$('amort').addEventListener('change', render);
+$('fullWear').addEventListener('change', render);
 $('fuelOn').addEventListener('change', render);
 function seg(id, key, after) {
   $(id).addEventListener('click', e => {
@@ -393,7 +397,6 @@ function seg(id, key, after) {
 }
 seg('diySeg', 'diy');
 seg('viewSeg', 'view', () => {
-  $('amortWrap').hidden = state.view === 'average';
   $('lineBox').hidden = state.view === 'average';
   $('avgBox').hidden = state.view !== 'average';
 });
