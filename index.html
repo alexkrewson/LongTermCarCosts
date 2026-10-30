@@ -331,7 +331,7 @@ function render() {
   // Cumulative view is real cash: purchases land when they happen, resales are credited at each swap.
   const ca = r.sawCum, cb = r.oldCum;
   if (state.view === 'monthly') {
-    a = r.sawSmooth; b = r.oldSmooth;
+    a = r.sawCash; b = r.oldCash;
     yLabel = 'Cost per month';
   } else {
     a = ca; b = cb;
@@ -376,9 +376,9 @@ function render() {
   $('note').textContent = state.view === 'average'
     ? 'Average all-in cost per month over the full ' + yrs + '-year horizon. Sawtooth car cost is purchases + fees − resales, minus the value of the car still owned at the end.'
     : state.view === 'monthly'
-    ? 'Each car\'s lost value (price + fees − resale) is spread evenly over the years it\'s kept. ' + (p.fullWear
-        ? 'Full wear is on, so swap cars pay the same averaged wear as the old car and their line is flat; the old car\'s spikes show in the month they happen.'
-        : 'Swap-car maintenance rises with age and drops at each replacement; the old car\'s spikes show in the month they happen.')
+    ? 'Real cash each month: a swap month spikes by the next car\'s price plus fees, minus what the last one sold for; the first month includes each original purchase. ' + (p.fullWear
+        ? 'Full wear is on, so between swaps the swap line is flat (same averaged wear as the old car). The old car\'s big repairs show in the month they happen.'
+        : 'Between swaps, swap-car maintenance steps up with age. The old car\'s big repairs show in the month they happen.')
     : 'Total cash out the door. Each swap-line step is a swap: the next car\'s price plus fees, minus what the last one sold for. The totals above also credit the swap car still owned at the end. ' + (p.fullWear
         ? 'Swap cars are charged the old car\'s full wear rate, so deferred repairs aren\'t passed to the next owner. This is the swap plan\'s worst case, since resale prices already absorb some wear.'
         : 'Swap cars pay only the repairs that come due while owned, so wear left on the car passes to the next buyer.');
